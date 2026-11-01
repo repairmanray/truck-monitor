@@ -65,3 +65,49 @@ in the ROM boot log on these wakes and did not affect operation.
 - Set `ENABLE_OLED` to 0 in `truck_node.ino` before installing in the truck.
 - `timestamp` is not yet produced: records carry boot count and wake time until
   WiFi/NTP arrives in Phase 3.
+
+## Phase 3: WiFi sync and flash fallback (2026-10-31)
+
+Tag: `v0.2-sync`
+
+### What was built
+- `server/collector.py` on CT100 (`truck-log.service`, port 8101, SQLite at
+  `~/truck-log/truck.db`). Needs the `X-Truck-Token` header; the token file
+  stays on CT100 and in the node's NVS only.
+- Node writes each record to LittleFS first, then uploads the queue, and removes
+  records only after an HTTP 200. Records are unique on (device, boot_epoch,
+  seq), so a resend can't create duplicates.
+- Fallback storage is onboard flash, not SD: the Heltec has no SD slot, and
+  `docs/mvp-spec.md` already called for onboard flash.
+- `tools/set_net.py` loads WiFi and collector settings over USB without printing
+  them.
+
+### Results
+
+| Check | Requirement | Result |
+|---|---|---|
+| Synced | Within 5 s, 5 in a row | Pass: seq 2 to 6 took 5, 3, 4, 4, 4 s |
+| WiFi down | 5 cycles, zero loss | Pass: 6 cycles, each stored, queue rose 2 to 7 |
+| Backlog | Uploads when WiFi returns | Pass: 8 records sent, queue 0, 0 of 6 outage records missing |
+| Collector | Rejects bad input | Pass: bad token 403, bad line rejected, resend ignored |
+
+WiFi was taken down by pointing the node at a nonexistent SSID. Latency is
+measured from the record's whole-second timestamp to the collector's
+received time, so each figure is accurate to about 1 s.
+
+### Notes
+- The 5 s sync limit has little margin: the worst case above was at 5 s. The
+  first sync after power-up took 6.3 s because it also sets the clock, and one
+  later wake took 5.3 s in the node's own timer, which includes WiFi shutdown.
+- Records taken before the first NTP sync have a null timestamp. CT100's
+  received time is the only time for those.
+- Opening the USB serial port resets the board, which starts a new boot_epoch.
+
+### Deferred
+- No handling for a full queue. The flash partition is about 1.5 MB, and a full
+  disk would lose new records. Size this and set a policy before long parked
+  stretches away from WiFi.
+- A failed WiFi attempt costs about 6 s awake each wake, which will matter for
+  battery once the wake interval is set. Consider backing off.
+- The 20 s wake interval is a bench value.
+- Reading in the truck needs WiFi coverage where it parks. Check this in Phase 4.

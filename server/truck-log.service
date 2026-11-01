@@ -1,0 +1,14 @@
+[Unit]
+Description=Truck Monitor collector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+User=ray
+WorkingDirectory=/home/ray/truck-log
+ExecStart=/usr/bin/python3 /home/ray/truck-log/collector.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

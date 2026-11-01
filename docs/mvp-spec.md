@@ -23,7 +23,10 @@ whole-truck current sensing (INA226). Each gets its own phase.
 One log record per sample:
 
 {
-  timestamp: unix epoch,
+  device: string,
+  boot_epoch: int (random ID, new on each power-up),
+  seq: int (counts up across deep sleep),
+  timestamp: unix epoch, or null until the clock is set by NTP,
   voltage: float (V),
   current: float (mA),
   temp: float (degrees C),
@@ -32,6 +35,9 @@ One log record per sample:
   pressure: float (hPa),
   synced: bool
 }
+
+Records are unique on (device, boot_epoch, seq). A node sends `synced: false`;
+any record stored on CT100 has been synced.
 
 ## Success criteria
 - Voltage reading within +/-0.1V of a multimeter
