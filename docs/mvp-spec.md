@@ -14,6 +14,8 @@ whole-truck current sensing (INA226). Each gets its own phase.
   fuse 12 (I.O.D.) tap
 - Temp/humidity: AHT21, I2C (address 0x38 default), mounted inside 
   the enclosure alongside the Heltec
+- Pressure/temp cross-check: BMP280 (HW-611), I2C (address 0x76), 
+  mounted alongside the AHT21
 - Power tap: fuse-tap adapter into fuse 12 (I.O.D.), buck converter 
   to 5V
 
@@ -26,6 +28,8 @@ One log record per sample:
   current: float (mA),
   temp: float (degrees C),
   humidity: float (%RH),
+  temp_bmp: float (degrees C),
+  pressure: float (hPa),
   synced: bool
 }
 
