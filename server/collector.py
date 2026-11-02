@@ -4,6 +4,9 @@
 POST /truck/log    newline-delimited JSON records, X-Truck-Token header
 GET  /truck/api/latest    newest stored records
 
+A POST reply carries "ota", the waiting update's id, or 0 if none. Records carry
+"fw", the update the truck is running, and /truck/api/latest reports the newest.
+
 Records are unique on (device, boot_epoch, seq), so a node can safely resend a
 batch whose reply it never received.
 """
@@ -21,6 +24,7 @@ PORT = int(os.environ.get("TRUCK_LOG_PORT", "8101"))
 DB_PATH = BASE / "truck.db"
 TOKEN = (BASE / "token").read_text().strip()
 MAX_BODY = 256 * 1024
+ORDER_PATH = BASE / "fw" / "order.txt"
 FIELDS = ("timestamp", "voltage", "current", "temp", "humidity", "temp_bmp", "pressure")
 
 SCHEMA = """
@@ -41,6 +45,17 @@ CREATE TABLE IF NOT EXISTS readings (
 """
 
 
+running_fw = None
+
+
+def waiting_ota():
+    """Returns the id of the queued update: the first 4 bytes of its sha256."""
+    try:
+        return int(ORDER_PATH.read_text().split()[1][:8], 16)
+    except (OSError, IndexError, ValueError):
+        return 0
+
+
 def connect():
     db = sqlite3.connect(DB_PATH, timeout=10)
     db.row_factory = sqlite3.Row
@@ -49,6 +64,7 @@ def connect():
 
 def store(lines):
     """Stores each parsable record, returning (added, duplicate, rejected)."""
+    global running_fw
     added = duplicate = rejected = 0
     now = int(time.time())
     with connect() as db:
@@ -61,6 +77,8 @@ def store(lines):
             except (ValueError, KeyError, TypeError):
                 rejected += 1
                 continue
+            if isinstance(rec.get("fw"), int):
+                running_fw = rec["fw"]
             cur = db.execute(
                 "INSERT OR IGNORE INTO readings VALUES (?,?,?,?,?,?,?,?,?,?,?)",
                 key + tuple(rec.get(f) for f in FIELDS) + (now,),
@@ -98,7 +116,8 @@ class Handler(BaseHTTPRequestHandler):
             return self.reply(413, {"error": "bad length"})
         lines = self.rfile.read(length).decode("utf8", "replace").split("\n")
         added, duplicate, rejected = store(lines)
-        self.reply(200, {"added": added, "duplicate": duplicate, "rejected": rejected})
+        self.reply(200, {"added": added, "duplicate": duplicate, "rejected": rejected,
+                         "ota": waiting_ota()})
 
     def do_GET(self):
         if self.path.split("?")[0] != "/truck/api/latest":
@@ -108,7 +127,7 @@ class Handler(BaseHTTPRequestHandler):
                 "SELECT * FROM readings ORDER BY received_at DESC, boot_epoch DESC, seq DESC LIMIT 50"
             ).fetchall()
             total = db.execute("SELECT COUNT(*) FROM readings").fetchone()[0]
-        self.reply(200, {"total": total, "readings": [dict(r) for r in rows]})
+        self.reply(200, {"total": total, "fw": running_fw, "readings": [dict(r) for r in rows]})
 
     def log_message(self, fmt, *args):
         return
